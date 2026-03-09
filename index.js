@@ -1,4 +1,5 @@
 const https = require("https");
+const tls = require("tls");
 const http = require("http");
 const url = require("url");
 
@@ -19,14 +20,24 @@ const CACHE_TTL = 60; // seconds
 function certLogin() {
   return new Promise((resolve, reject) => {
     const postData = `username=${encodeURIComponent(BETFAIR_USERNAME)}&password=${encodeURIComponent(BETFAIR_PASSWORD)}`;
-    const agent = new https.Agent({ cert: BETFAIR_CERT, key: BETFAIR_KEY, keepAlive: false });
+
+    // Write certs to /tmp to ensure they're loaded from filesystem
+    const fs = require("fs");
+    const certPath = "/tmp/bf-client.crt";
+    const keyPath = "/tmp/bf-client.key";
+    fs.writeFileSync(certPath, BETFAIR_CERT);
+    fs.writeFileSync(keyPath, BETFAIR_KEY);
+
+    const cert = fs.readFileSync(certPath);
+    const key = fs.readFileSync(keyPath);
 
     const req = https.request(
       {
         hostname: "identitysso-cert.betfair.com",
         path: "/api/certlogin",
         method: "POST",
-        agent,
+        cert,
+        key,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "X-Application": BETFAIR_APP_KEY,
@@ -37,19 +48,20 @@ function certLogin() {
         let body = "";
         res.on("data", (c) => (body += c));
         res.on("end", () => {
-          agent.destroy();
           try {
             const j = JSON.parse(body);
-            j.loginStatus === "SUCCESS"
-              ? resolve(j.sessionToken)
-              : reject(new Error(`Login: ${j.loginStatus}`));
+            if (j.loginStatus === "SUCCESS") {
+              resolve(j.sessionToken);
+            } else {
+              reject(new Error(`Login: ${j.loginStatus} | cert_size:${cert.length} key_size:${key.length} cert_head:${cert.toString().substring(0,27)} node:${process.version}`));
+            }
           } catch (e) {
             reject(new Error(`Parse: ${body}`));
           }
         });
       }
     );
-    req.on("error", (e) => { agent.destroy(); reject(e); });
+    req.on("error", (e) => { reject(new Error(`TLS_ERROR: ${e.message} | code:${e.code}`)); });
     req.write(postData);
     req.end();
   });
