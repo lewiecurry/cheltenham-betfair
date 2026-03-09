@@ -137,6 +137,28 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: "ok", cached: !!cache.data }));
   }
 
+  // Debug endpoint - check env var status (remove after debugging)
+  if (parsed.pathname === "/debug") {
+    const certB64 = process.env.BETFAIR_CERT_B64 || "";
+    const keyB64 = process.env.BETFAIR_KEY_B64 || "";
+    const certDecoded = Buffer.from(certB64, "base64").toString();
+    const keyDecoded = Buffer.from(keyB64, "base64").toString();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({
+      username_set: !!process.env.BETFAIR_USERNAME,
+      password_set: !!process.env.BETFAIR_PASSWORD,
+      appkey_set: !!process.env.BETFAIR_APP_KEY,
+      cert_b64_length: certB64.length,
+      key_b64_length: keyB64.length,
+      cert_starts_with: certDecoded.substring(0, 27),
+      cert_ends_with: certDecoded.substring(certDecoded.length - 30),
+      key_starts_with: keyDecoded.substring(0, 27),
+      key_ends_with: keyDecoded.substring(keyDecoded.length - 27),
+      cert_valid_pem: certDecoded.startsWith("-----BEGIN CERTIFICATE-----"),
+      key_valid_pem: keyDecoded.startsWith("-----BEGIN PRIVATE KEY-----"),
+    }));
+  }
+
   // Prices endpoint
   if (parsed.pathname === "/api/prices") {
     // Optional auth check
