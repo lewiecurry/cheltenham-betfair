@@ -1,0 +1,12 @@
+{
+  "name": "betfair-proxy",
+  "version": "1.0.0",
+  "description": "Betfair mTLS proxy for Cheltenham dashboard",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

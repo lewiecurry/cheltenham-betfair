@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: betfair-proxy
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: BETFAIR_USERNAME
+        sync: false
+      - key: BETFAIR_PASSWORD
+        sync: false
+      - key: BETFAIR_APP_KEY
+        sync: false
+      - key: BETFAIR_CERT_B64
+        sync: false
+      - key: BETFAIR_KEY_B64
+        sync: false
+      - key: API_SECRET
+        sync: false
