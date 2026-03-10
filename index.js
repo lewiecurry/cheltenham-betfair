@@ -16,54 +16,71 @@ const API_SECRET = process.env.API_SECRET || ""; // optional auth token
 let cache = { data: null, ts: 0 };
 const CACHE_TTL = 60; // seconds
 
-// --- Betfair cert login ---
+// --- Betfair login (try cert first, fallback to interactive) ---
 function certLogin() {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const postData = `username=${encodeURIComponent(BETFAIR_USERNAME)}&password=${encodeURIComponent(BETFAIR_PASSWORD)}`;
 
-    // Write certs to /tmp to ensure they're loaded from filesystem
-    const fs = require("fs");
-    const certPath = "/tmp/bf-client.crt";
-    const keyPath = "/tmp/bf-client.key";
-    fs.writeFileSync(certPath, BETFAIR_CERT);
-    fs.writeFileSync(keyPath, BETFAIR_KEY);
+    // Try cert-based login first
+    try {
+      const fs = require("fs");
+      const certPath = "/tmp/bf-client.crt";
+      const keyPath = "/tmp/bf-client.key";
+      fs.writeFileSync(certPath, BETFAIR_CERT);
+      fs.writeFileSync(keyPath, BETFAIR_KEY);
 
-    const cert = fs.readFileSync(certPath);
-    const key = fs.readFileSync(keyPath);
+      const cert = fs.readFileSync(certPath);
+      const key = fs.readFileSync(keyPath);
 
-    const req = https.request(
-      {
-        hostname: "identitysso-cert.betfair.com",
-        path: "/api/certlogin",
+      const certResult = await new Promise((res, rej) => {
+        const req = https.request({
+          hostname: "identitysso-cert.betfair.com",
+          path: "/api/certlogin",
+          method: "POST",
+          cert, key,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Application": BETFAIR_APP_KEY,
+            "Content-Length": Buffer.byteLength(postData),
+          },
+        }, (r) => {
+          let b = ""; r.on("data", c => b += c);
+          r.on("end", () => res(JSON.parse(b)));
+        });
+        req.on("error", rej);
+        req.write(postData); req.end();
+      });
+
+      if (certResult.loginStatus === "SUCCESS") {
+        console.log("Cert login succeeded");
+        return resolve(certResult.sessionToken);
+      }
+      console.log("Cert login failed:", certResult.loginStatus, "- trying interactive login");
+    } catch (e) {
+      console.log("Cert login error:", e.message, "- trying interactive login");
+    }
+
+    // Fallback: interactive (non-cert) login
+    const loginUrl = `https://identitysso.betfair.com/api/login?username=${encodeURIComponent(BETFAIR_USERNAME)}&password=${encodeURIComponent(BETFAIR_PASSWORD)}`;
+    try {
+      const res = await fetch(loginUrl, {
         method: "POST",
-        cert,
-        key,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "X-Application": BETFAIR_APP_KEY,
-          "Content-Length": Buffer.byteLength(postData),
+          "Accept": "application/json",
         },
-      },
-      (res) => {
-        let body = "";
-        res.on("data", (c) => (body += c));
-        res.on("end", () => {
-          try {
-            const j = JSON.parse(body);
-            if (j.loginStatus === "SUCCESS") {
-              resolve(j.sessionToken);
-            } else {
-              reject(new Error(`Login: ${j.loginStatus} | cert_size:${cert.length} key_size:${key.length} cert_head:${cert.toString().substring(0,27)} node:${process.version}`));
-            }
-          } catch (e) {
-            reject(new Error(`Parse: ${body}`));
-          }
-        });
+      });
+      const j = await res.json();
+      if (j.status === "SUCCESS" || j.loginStatus === "SUCCESS") {
+        console.log("Interactive login succeeded");
+        resolve(j.token || j.sessionToken);
+      } else {
+        reject(new Error(`Both logins failed. Cert: BETTING_RESTRICTED_LOCATION, Interactive: ${JSON.stringify(j)}`));
       }
-    );
-    req.on("error", (e) => { reject(new Error(`TLS_ERROR: ${e.message} | code:${e.code}`)); });
-    req.write(postData);
-    req.end();
+    } catch (e) {
+      reject(new Error(`Interactive login error: ${e.message}`));
+    }
   });
 }
 
